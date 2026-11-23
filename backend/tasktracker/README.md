@@ -30,9 +30,9 @@ The application should run from the command line, accept user actions and inputs
 - createdAt
 - updatedAt
 
-List of commands
+### List of commands
 - task-cli add "Buy groceries"
-  # Output: Task added successfully (ID:1)
+ Output: Task added successfully (ID:1)
 
 
 - task-cli update 1 "Buy groceries and cook dinner"
