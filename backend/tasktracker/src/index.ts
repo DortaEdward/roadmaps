@@ -9,6 +9,24 @@ function isStatus(value: string): value is Status {
     return ["done", "todo", "in-progress"].includes(value);
 }
 
+const HELP_TEXT = `Usage: task-cli <command> [arguments]
+
+Commands:
+  add <description>             Add a new task
+  update <id> <description>     Change a task's description
+  delete <id>                   Delete a task
+  mark-todo <id>                Mark a task as todo
+  mark-in-progress <id>         Mark a task as in progress
+  mark-done <id>                Mark a task as done
+  list [status]                 List all tasks, or only those with a status
+                                (status: todo, in-progress, done)
+  help                          Show this message
+
+Examples:
+  task-cli add "Buy groceries"
+  task-cli update 1 "Buy groceries and cook dinner"
+  task-cli mark-done 1
+  task-cli list in-progress`;
 
 interface Task {
     id: number
@@ -18,34 +36,24 @@ interface Task {
     updatedAt: string
 }
 
-function handleError(error: any) {
+function handleError(error: unknown): never {
     if (error instanceof Error) {
         console.error(error.message)
-        process.exit(-1)
+    } else {
+        console.error(error)
     }
+    process.exit(1)
 }
 
 const FILENAME = "tasks.json"
 const FILEPATH = path.join(__dirname, FILENAME)
 
 let fileData: Task[] = []
-let count: number;
 
-function getStats() {
-    count = fileData.length
-}
-
-function doesTaskExist(id: number) {
-    const task = fileData.find((t) => t.id === id);
-    if (task === undefined) {
-        throw new Error("Task with that id is not found.")
-    }
-}
 
 async function openFile() {
     try {
         const exists = await existsSync(FILEPATH)
-        // check if file is empty
         if (!exists) {
             return await writeToFile()
         }
@@ -62,15 +70,23 @@ async function openFile() {
         handleError(error)
     }
 }
+function createTimeStamp() {
+    return new Date().toISOString();
+}
+
+function generateID() {
+    return fileData.reduce((max, t) => Math.max(max, t.id), 0) + 1;
+}
 
 async function addTask(description: string) {
     try {
+        const time = createTimeStamp()
         const task: Task = {
-            id: count + 1,
+            id: generateID(),
             description: description,
             status: "todo",
-            createdAt: new Date().toDateString(),
-            updatedAt: new Date().toDateString()
+            createdAt: time,
+            updatedAt: time
         }
         fileData.push(task)
         await writeToFile()
@@ -80,39 +96,26 @@ async function addTask(description: string) {
 }
 
 async function listTasks(status?: Status) {
-    switch (status) {
-        case "todo":
-            fileData.forEach(task => {
-                if (task.status === "todo")
-                    console.log(`${task.id} | ${task.description} | ${task.status} | ${task.createdAt} | ${task.updatedAt}`)
-            })
-            break;
-        case "in-progress":
-            fileData.forEach(task => {
-                if (task.status === "in-progress")
-                    console.log(`${task.id} | ${task.description} | ${task.status} | ${task.createdAt} | ${task.updatedAt}`)
-            })
-            break;
-        case "done":
-            fileData.forEach(task => {
-                if (task.status === "done")
-                    console.log(`${task.id} | ${task.description} | ${task.status} | ${task.createdAt} | ${task.updatedAt}`)
-            })
-            break;
-        default:
-            fileData.forEach(task => {
-                console.log(`${task.id} | ${task.description} | ${task.status} | ${task.createdAt} | ${task.updatedAt}`)
-            })
+    const filteredList = status ?
+        fileData.filter(t => t.status === status)
+        : fileData
+    if (filteredList.length === 0) {
+        console.log("No tasks found.")
+        return
     }
+    filteredList.forEach(task => {
+        console.log(`${task.id} | ${task.description} | ${task.status} | ${task.createdAt} | ${task.updatedAt}`)
+    })
 }
 
 async function updateTask(id: number, description: string) {
-    doesTaskExist(id);
+    findTask(id);
     fileData = fileData.map(t => {
         if (t.id === id) {
             return {
                 ...t,
-                description: description
+                description: description,
+                updatedAt: createTimeStamp()
             }
         }
         return t
@@ -121,7 +124,7 @@ async function updateTask(id: number, description: string) {
 }
 
 async function deleteTask(id: number) {
-    doesTaskExist(id);
+    findTask(id);
     fileData = fileData.filter(t => t.id !== id)
     await writeToFile()
     console.log(`Task id :${id} deleted`)
@@ -135,89 +138,68 @@ async function writeToFile() {
     }
 }
 
-async function mark(id: number, status: Status) {
-    doesTaskExist(id)
-    let task = fileData.find(t => t.id === id)
+function findTask(id: number) {
+    const task = fileData.find(t => t.id === id)
     if (task === undefined) {
-        throw new Error("Task does not exists")
+        handleError("ERROR: Task does not exist. Try again.");
     }
+    return task
+}
+
+async function mark(id: number, status: Status) {
+    let task = findTask(id)
     task.status = status
-    fileData = fileData.map((t) => {
-        if (t.id === id) {
-            return task
-        }
-        return t;
-    })
+    task.updatedAt = createTimeStamp()
     await writeToFile();
 }
 
+function parseId(value: string | undefined) {
+    if (!value) handleError(`ERROR: Missing argument "ID", please try again.`)
+    const id = Number(value)
+    if (!Number.isInteger(id) || id <= 0) handleError(`ERROR: argument "ID" is not a number, please try again.`)
+}
+
+function printHelp() {
+    console.log(HELP_TEXT)
+    return
+}
 
 
 async function main() {
     const args = process.argv;
-    if (args.length <= 2) {
-        console.error("ERROR: Missing arguments. Type -help for more details")
-        process.exit(-1);
+
+    let arg = args.slice(2)
+    if (arg.length === 0 || /^-{0,2}(h|help)$/i.test(arg[0])) {
+        printHelp()
+        return
     }
 
     await openFile()
-    await getStats()
-
-    let arg = args.slice(2)
 
     switch (arg[0]) {
         case "add":
-            if (!arg[1]) {
-                console.error(`ERROR: Missing argument "Description", please try again.`)
-                process.exit(-1)
-            }
+            if (!arg[1]) handleError(`ERROR: Missing argument "Description", please try again.`)
             await addTask(arg[1])
             break;
         case "update":
-            if (!arg[1]) {
-                console.error(`ERROR: Missing argument "ID", please try again.`)
-                process.exit(-1)
-            }
-            if (!Number(arg[1])) {
-                console.error(`ERROR: argument "ID" is not a number, please try again.`)
-                process.exit(-1)
-            }
-            if (!arg[2]) {
-                console.error(`ERROR: Missing argument "Description", please try again.`)
-                process.exit(-1)
-            }
+            parseId(arg[1]);
+            if (!arg[2]) handleError(`ERROR: Missing argument "Description", please try again.`)
             await updateTask(Number(arg[1]), arg[2])
             break;
         case "delete":
-            if (!arg[1]) {
-                console.error(`ERROR: Missing argument "ID", please try again.`)
-                process.exit(-1)
-            }
-            if (!Number(arg[1])) {
-                console.error(`ERROR: argument "ID" is not a number, please try again.`)
-                process.exit(-1)
-            }
+            parseId(arg[1]);
             await deleteTask(Number(arg[1]))
             break;
         case "mark-todo":
-            if (!arg[1]) {
-                console.error(`ERROR: Missing argument "ID", please try again.`)
-                process.exit(-1)
-            }
+            parseId(arg[1]);
             await mark(Number(arg[1]), "todo")
             break;
         case "mark-in-progress":
-            if (!arg[1]) {
-                console.error(`ERROR: Missing argument "ID", please try again.`)
-                process.exit(-1)
-            }
+            parseId(arg[1]);
             await mark(Number(arg[1]), "in-progress")
             break;
         case "mark-done":
-            if (!arg[1]) {
-                console.error(`ERROR: Missing argument "ID", please try again.`)
-                process.exit(-1)
-            }
+            parseId(arg[1]);
             await mark(Number(arg[1]), "done")
             break;
         case "list":
@@ -226,11 +208,14 @@ async function main() {
                 return;
             }
             if (!isStatus(arg[1])) {
-                console.error(`ERROR: Missing argument "Status", please try again.`)
-                process.exit(-1)
+                console.error(`ERROR: Invalid argument, please try again.`)
+                process.exit(1)
             }
             await listTasks(arg[1])
             break;
+        default:
+            console.error("Invalid command. Enter -help for a list of commands")
+            process.exit(1)
     }
 }
 
